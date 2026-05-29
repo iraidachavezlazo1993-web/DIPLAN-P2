@@ -5,9 +5,25 @@ unidades de PRONIED, las **limpia**, **normaliza** y las **organiza en 11 grupos
 según el insumo `Ordenamiento_ultimo.xlsx`. Adicionalmente genera un
 **diccionario de datos** y dos **bases finales consolidadas**.
 
-> El **Grupo 2 (PI)** NO se procesa: el cliente indicó que ya lo tiene limpio.
+> El **Grupo 2 (PI)** se incorpora con su base final ya consolidada
+> (`df_pi_listados_final_v7.xlsx`, hoja `con_cod_local`), pasándola por el mismo
+> pipeline para estandarizar códigos, fechas, montos, ubigeo y `fuente`.
 > Los **insumos** (`Ordenamiento_ultimo.xlsx`, `df_vinculaciones_*.xlsx`,
-> `ubigeo.xlsx`) **no se limpian**; solo se usan como referencia/cruce.
+> `ubigeo_UGEL.xlsx`, `Copia de Padron_web.csv`) **no se limpian**; solo se usan
+> como referencia/cruce.
+
+### Campo `fuente`
+Todas las bases (individuales y consolidadas) incluyen una columna **`fuente`**
+que indica la unidad/insumo que reporta principalmente el registro
+(ANIN, UGM, DIGEGED, PI, …). En los **Anexos 1 y 2** la fuente se toma **por
+fila** del campo *Remitente* (p. ej. `Anexo 2 - MP Tambopata`).
+
+### Padrón web (imputación + respaldo geográfico)
+El insumo `Copia de Padron_web.csv` (padrón nacional de locales) se usa como
+fuente **adicional** para imputar `cod_local` (vía `cod_mod` / `codinst`) y como
+**respaldo** de ubicación (departamento/provincia/distrito/ubigeo/DRE/UGEL)
+cuando el local no está en `ubigeo_UGEL`. Cobertura resultante: **99.8% de
+`cod_local`** y **99.6% de geografía/UGEL**.
 
 ---
 

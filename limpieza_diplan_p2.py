@@ -64,6 +64,7 @@ for d in (OUT_DIR, LIMPIAS_DIR, FINAL_DIR):
 ARCHIVO_VINCULACIONES = "df_vinculaciones_updated_20260527.xlsx"
 ARCHIVO_ORDENAMIENTO  = "Ordenamiento_ultimo.xlsx"
 ARCHIVO_UBIGEO        = "ubigeo_UGEL.xlsx"   # ubigeo enriquecido con DRE/UGEL
+ARCHIVO_PADRON        = "Copia de Padron_web.csv"   # padron web nacional (insumo)
 
 # ------------------------------------------------------------------ #
 #  NOMBRES DE LOS 11 GRUPOS (insumo Ordenamiento, hoja "Grupos")
@@ -81,7 +82,28 @@ GRUPOS = {
     10: "INSPECCIONES",
     11: "DEMOLICIONES",
 }
-GRUPO_OMITIR = 2   # el cliente ya lo tiene limpio
+GRUPO_OMITIR = None   # el Grupo 2 ahora se incorpora con su base final ya limpia
+
+# ------------------------------------------------------------------ #
+#  FUENTE (unidad/insumo que reporta principalmente la base)
+#  Para Anexo 1 y 2 la fuente se toma por fila del campo "Remitente".
+# ------------------------------------------------------------------ #
+FUENTE_LIBRO = {
+    "ANIN.xlsx": "ANIN",
+    "FONCODES.xlsx": "FONCODES",
+    "PEIP.xlsx": "PEIP",
+    "PEIP_solomant.xlsx": "PEIP",
+    "UGM.xlsx": "UGM",
+    "UGME.xlsx": "UGME",
+    "UGRD.xlsx": "UGRD",
+    "UGSC.xlsx": "UGSC",
+    "2026.03.30 Zonales_UZ.xlsx": "Unidades Zonales (UZ)",
+    "DIGEGED.xlsx": "DIGEGED",
+    "DRELM.xlsx": "DRELM",
+    "UE118.xlsx": "UE118",
+    "UGEO.xlsx": "UGEO",
+    "df_pi_listados_final_v7.xlsx": "PI (Banco de Inversiones)",
+}
 
 # ------------------------------------------------------------------ #
 #  CONFIGURACION DE BASES A PROCESAR
@@ -129,6 +151,8 @@ CONFIG = [
     (ANEXO2,                     "C",                            "df_anexo2_c",                73, 6,  None),
     (ANEXO2,                     "D",                            "df_anexo2_d",                74, 11, None),
     (ANEXO2,                     "E",                            "df_anexo2_e",                75, 4,  None),
+    # Grupo 2 (PI): base FINAL ya consolidada y limpia, se incorpora tal cual
+    ("df_pi_listados_final_v7.xlsx", "con_cod_local",            "df_pi_listados_final_v7",    77, 2,  None),
 ]
 
 # ================================================================== #
@@ -338,6 +362,7 @@ def es_col_fecha(nombre: str) -> bool:
 def es_col_monto(nombre: str) -> bool:
     n = norm_key(nombre)
     claves = ["monto", "devengado", "dev. acumulado", "dev acumulado",
+              "dev_acum", "dev acum",
               "costo actualizado", "costo", "pim", "presupuesto",
               "inversion (s/", "monto de inversion", "monto contractual",
               "monto incurrido", "monto asignado", "monto transferido",
@@ -369,7 +394,7 @@ def es_col_cod_modular(nombre: str) -> bool:
     n = norm_key(nombre)
     return any(k in n for k in ["codigo modular", "codigos modulares",
                                 "cod. modular", "cod modular", "cod_modular",
-                                "codigo institucional"])
+                                "cod_mod", "cod mod", "codigo institucional"])
 
 
 # ================================================================== #
@@ -459,12 +484,16 @@ def construir_indices_vinculaciones():
     return cui_a_local, mod_a_local
 
 
-def imputar_cod_local(df, cui_a_local, mod_a_local):
+def imputar_cod_local(df, cui_a_local, mod_a_local, inst_a_local=None):
     """Si el df no tiene cod_local (o tiene nulos), intenta imputarlo cruzando
-    por cui o cod_modular. Devuelve (df, n_imputados)."""
+    por cui, cod_modular o codigo institucional. Devuelve (df, n_imputados)."""
+    inst_a_local = inst_a_local or {}
     col_local = next((c for c in df.columns if es_col_cod_local(c)), None)
     col_cui   = next((c for c in df.columns if es_col_cui(c)), None)
     col_mod   = next((c for c in df.columns if es_col_cod_modular(c)), None)
+    col_inst  = next((c for c in df.columns
+                      if "codigo institucional" in norm_key(c)
+                      or norm_key(c) in {"codinst", "cod_inst"}), None)
 
     if col_local is None:
         df["cod_local"] = np.nan
@@ -483,6 +512,10 @@ def imputar_cod_local(df, cui_a_local, mod_a_local):
                 k = c.lstrip("0") or "0"
                 if k in mod_a_local:
                     return mod_a_local[k]
+        if col_inst is not None and pd.notna(row.get(col_inst)):
+            k = _solo_digitos(str(row[col_inst])).lstrip("0") or "0"
+            if k in inst_a_local:
+                return inst_a_local[k]
         return actual
 
     antes = df[col_local].notna().sum()
@@ -526,6 +559,51 @@ def construir_indice_ubigeo():
     return idx
 
 
+def cargar_padron():
+    """Lee el padron web nacional. Devuelve:
+      - mod2local   : cod_mod (sin ceros) -> cod_local (6 dig)
+      - inst2local  : codinst (sin ceros) -> cod_local (6 dig)
+      - geo_padron  : cod_local (6 dig) -> {departamento, provincia, distrito,
+                       centro_poblado, ubigeo, dre, ugel}
+    Sirve como fuente adicional de imputacion y respaldo geografico."""
+    if not os.path.exists(ARCHIVO_PADRON):
+        print("  · (padron web no encontrado; se omite)")
+        return {}, {}, {}
+    print("  · Cargando padron web nacional...")
+    p = pd.read_csv(ARCHIVO_PADRON, sep=";", dtype=str, encoding="latin-1",
+                    on_bad_lines="skip")
+    p.columns = [limpiar_nombre_columna(c) for c in p.columns]
+    col = lambda nm: p[nm].tolist() if nm in p.columns else [None] * len(p)
+    L_local = col("CODLOCAL"); L_mod = col("COD_MOD"); L_inst = col("CODINST")
+    L_dpto = col("D_DPTO"); L_prov = col("D_PROV"); L_dist = col("D_DIST")
+    L_geo = col("CODGEO"); L_reg = col("D_REGION"); L_ugel = col("D_DREUGEL")
+    mod2local, inst2local, geo = {}, {}, {}
+    for i in range(len(p)):
+        cl = limpiar_cod_local(L_local[i])
+        if not isinstance(cl, str):
+            continue
+        mod = re.sub(r"\D", "", str(L_mod[i])) if L_mod[i] is not None else ""
+        if mod:
+            mod2local.setdefault(mod.lstrip("0") or "0", cl)
+        inst = re.sub(r"\D", "", str(L_inst[i])) if L_inst[i] is not None else ""
+        if inst:
+            inst2local.setdefault(inst.lstrip("0") or "0", cl)
+        if cl not in geo:
+            ub = re.sub(r"\D", "", str(L_geo[i])) if L_geo[i] is not None else ""
+            geo[cl] = {
+                "departamento":   normalizar_texto(L_dpto[i]),
+                "provincia":      normalizar_texto(L_prov[i]),
+                "distrito":       normalizar_texto(L_dist[i]),
+                "centro_poblado": np.nan,
+                "ubigeo":         ub.zfill(6) if ub else np.nan,
+                "dre":            normalizar_texto(L_reg[i]),
+                "ugel":           normalizar_texto(L_ugel[i]),
+            }
+    print(f"    -> padron: {len(mod2local):,} cod_mod, {len(inst2local):,} codinst, "
+          f"{len(geo):,} locales con ubicacion")
+    return mod2local, inst2local, geo
+
+
 def agregar_ubigeo(df, col_local, ubigeo_idx):
     """Agrega columnas canonicas departamento/provincia/distrito/centro_poblado/
     ubigeo a partir del cod_local. Devuelve (df, n_geo)."""
@@ -547,7 +625,7 @@ def agregar_ubigeo(df, col_local, ubigeo_idx):
 # ================================================================== #
 #  LIMPIEZA DE UN DATAFRAME
 # ================================================================== #
-def limpiar_df(df, cui_a_local, mod_a_local, ubigeo_idx, anio=None):
+def limpiar_df(df, cui_a_local, mod_a_local, ubigeo_idx, inst_a_local=None, anio=None):
     """Aplica todas las reglas de limpieza columna por columna."""
     reporte_cols = []
     for col in list(df.columns):
@@ -574,8 +652,8 @@ def limpiar_df(df, cui_a_local, mod_a_local, ubigeo_idx, anio=None):
             tipo = "texto normalizado"
         reporte_cols.append((col, tipo))
 
-    # imputa cod_local
-    df, n_imp, col_local = imputar_cod_local(df, cui_a_local, mod_a_local)
+    # imputa cod_local (vinculaciones + padron via cui/cod_mod/codinst)
+    df, n_imp, col_local = imputar_cod_local(df, cui_a_local, mod_a_local, inst_a_local)
 
     # enriquece con ubigeo (departamento/provincia/distrito) desde cod_local
     cols_previas = set(df.columns)
@@ -613,6 +691,31 @@ def buscar_col(df, *patrones):
     return None
 
 
+def etiqueta_fuente(libro):
+    """Etiqueta legible de la unidad/insumo que reporta la base."""
+    if libro in FUENTE_LIBRO:
+        return FUENTE_LIBRO[libro]
+    n = norm_key(libro)
+    if n.startswith("anexo 01") or "anexo 1" in n:
+        return "Anexo 1"
+    if n.startswith("anexo 02") or "anexo 2" in n:
+        return "Anexo 2"
+    return libro
+
+
+def asignar_fuente(df, libro):
+    """Devuelve la serie 'fuente' por fila. Para los Anexos toma el campo
+    'Remitente' (quien reporta la informacion); en el resto, la unidad."""
+    etiqueta = etiqueta_fuente(libro)
+    if etiqueta in ("Anexo 1", "Anexo 2"):
+        c_rem = buscar_col(df, "remitente")
+        if c_rem is not None:
+            base = f"{etiqueta} - " + df[c_rem].astype(object).where(
+                df[c_rem].notna(), "Sin remitente").astype(str)
+            return base
+    return pd.Series([etiqueta] * len(df), index=df.index)
+
+
 def armonizar(df, df_name, grupo, libro, hoja, col_local):
     """Extrae campos estandar de un df limpio para la base final armonizada."""
     n = len(df)
@@ -620,6 +723,7 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     out["grupo"]         = grupo
     out["grupo_nombre"]  = GRUPOS[grupo]
     out["df_name"]       = df_name
+    out["fuente"]        = df["fuente"].values if "fuente" in df.columns else etiqueta_fuente(libro)
     out["libro"]         = libro
     out["hoja"]          = hoja
 
@@ -704,6 +808,15 @@ def main():
 
     cui_a_local, mod_a_local = construir_indices_vinculaciones()
     ubigeo_idx = construir_indice_ubigeo()
+    mod_padron, inst_padron, geo_padron = cargar_padron()
+
+    # fusiona padron como fuente ADICIONAL (sin sobrescribir lo ya conocido)
+    for k, v in mod_padron.items():
+        mod_a_local.setdefault(k, v)
+    for cl, info in geo_padron.items():
+        ubigeo_idx.setdefault(cl, info)
+    print(f"  · Indices combinados -> cod_mod: {len(mod_a_local):,} | "
+          f"locales con ubicacion: {len(ubigeo_idx):,}")
 
     filas_dicc       = []   # diccionario de datos
     filas_reporte    = []   # reporte por base
@@ -731,7 +844,11 @@ def main():
             continue
 
         df, rep_cols, n_imp, col_local, n_geo = limpiar_df(
-            df, cui_a_local, mod_a_local, ubigeo_idx, anio)
+            df, cui_a_local, mod_a_local, ubigeo_idx, inst_padron, anio)
+
+        # agrega campo 'fuente' (unidad/remitente que reporta) a cada base
+        df["fuente"] = asignar_fuente(df, archivo).values
+        rep_cols.append(("fuente", "fuente (origen del reporte)"))
 
         # guarda base limpia
         guardar_df(df, nombre_carpeta_grupo(grupo), df_name)
