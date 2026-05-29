@@ -541,6 +541,7 @@ def construir_indice_ubigeo():
     c_ubi  = buscar_col(u, "ubigeo")
     c_dre  = buscar_col(u, "dre")
     c_ugel = buscar_col(u, "ugel")
+    c_nom  = buscar_col(u, "nro. y/o nombre", "nombre de los", "nombre de la i", "nombre")
     for _, r in u.iterrows():
         cl = limpiar_cod_local(r.get(c_local))
         if not isinstance(cl, str):
@@ -554,6 +555,8 @@ def construir_indice_ubigeo():
                               if pd.notna(v) and re.sub(r"\D", "", str(v)) else np.nan)(r.get(c_ubi)) if c_ubi else np.nan,
             "dre":           normalizar_texto(r.get(c_dre))  if c_dre  else np.nan,
             "ugel":          normalizar_texto(r.get(c_ugel)) if c_ugel else np.nan,
+            "nombre_ie":     normalizar_texto(r.get(c_nom))  if c_nom  else np.nan,
+            "area":          np.nan,
         })
     print(f"    -> {len(idx):,} locales georreferenciados (con DRE/UGEL)")
     return idx
@@ -577,6 +580,7 @@ def cargar_padron():
     L_local = col("CODLOCAL"); L_mod = col("COD_MOD"); L_inst = col("CODINST")
     L_dpto = col("D_DPTO"); L_prov = col("D_PROV"); L_dist = col("D_DIST")
     L_geo = col("CODGEO"); L_reg = col("D_REGION"); L_ugel = col("D_DREUGEL")
+    L_nom = col("CEN_EDU"); L_area = col("DAREACENSO")
     mod2local, inst2local, geo = {}, {}, {}
     for i in range(len(p)):
         cl = limpiar_cod_local(L_local[i])
@@ -598,6 +602,8 @@ def cargar_padron():
                 "ubigeo":         ub.zfill(6) if ub else np.nan,
                 "dre":            normalizar_texto(L_reg[i]),
                 "ugel":           normalizar_texto(L_ugel[i]),
+                "nombre_ie":      normalizar_texto(L_nom[i]),
+                "area":           normalizar_texto(L_area[i]),
             }
     print(f"    -> padron: {len(mod2local):,} cod_mod, {len(inst2local):,} codinst, "
           f"{len(geo):,} locales con ubicacion")
@@ -608,7 +614,7 @@ def agregar_ubigeo(df, col_local, ubigeo_idx):
     """Agrega columnas canonicas departamento/provincia/distrito/centro_poblado/
     ubigeo a partir del cod_local. Devuelve (df, n_geo)."""
     campos = ["departamento", "provincia", "distrito", "centro_poblado",
-              "ubigeo", "dre", "ugel"]
+              "ubigeo", "dre", "ugel", "nombre_ie", "area"]
     vacio = {k: np.nan for k in campos}
     locales = df[col_local] if col_local in df.columns else pd.Series([np.nan] * len(df))
     datos = [ubigeo_idx.get(cl, vacio) if isinstance(cl, str) else vacio
@@ -622,10 +628,65 @@ def agregar_ubigeo(df, col_local, ubigeo_idx):
     return df, n_geo
 
 
+def enriquecer_por_nombre(df, dept_idx, ugel_idx):
+    """Para registros que quedaron SIN departamento (no tienen cod_local),
+    intenta asignar departamento/dre/ugel cruzando por NOMBRE de UGEL o de
+    Unidad Zonal contra el padron. Devuelve (df, n_asignados)."""
+    if "departamento" not in df.columns:
+        return df, 0
+    mask = df["departamento"].isna()
+    if not mask.any():
+        return df, 0
+
+    # columnas candidatas que pueden contener nombres de UGEL/Unidad Zonal/entidad
+    cands = [c for c in df.columns if any(t in norm_key(c) for t in
+             ["ugel", "unidad zonal", "nombre de entidad", "nombre de la unidad",
+              "dre", "region", "departamento"])]
+    if not cands:
+        return df, 0
+
+    # asegura dtype object para poder asignar texto (evita columnas all-NaN float64)
+    for c in ("departamento", "dre", "ugel"):
+        if c in df.columns:
+            df[c] = df[c].astype(object)
+
+    # claves ordenadas (mas largas primero, para evitar coincidencias parciales)
+    ugel_keys = sorted(ugel_idx.keys(), key=len, reverse=True)
+    dept_keys = sorted(dept_idx.keys(), key=len, reverse=True)
+
+    n = 0
+    for i in df.index[mask]:
+        celdas = [norm_key(df.at[i, c]) for c in cands if pd.notna(df.at[i, c])]
+        if not celdas:
+            continue
+        texto = " ".join(celdas)
+        info = None
+        # 1) coincidencia exacta de una celda con un nombre de UGEL
+        for cel in celdas:
+            if cel in ugel_idx:
+                info = ugel_idx[cel]; break
+        # 2) departamento como palabra dentro del texto (p.ej. "UNIDAD ZONAL AREQUIPA")
+        if info is None:
+            for dk in dept_keys:
+                if dk and re.search(rf"\b{re.escape(dk)}\b", texto):
+                    info = dept_idx[dk]; break
+        if info is None:
+            continue
+        if pd.notna(info.get("departamento")):
+            df.at[i, "departamento"] = info["departamento"]
+        if "dre" in df.columns and pd.notna(info.get("dre")):
+            df.at[i, "dre"] = info["dre"]
+        if "ugel" in df.columns and info.get("ugel") and pd.isna(df.at[i, "ugel"]):
+            df.at[i, "ugel"] = info["ugel"]
+        n += 1
+    return df, n
+
+
 # ================================================================== #
 #  LIMPIEZA DE UN DATAFRAME
 # ================================================================== #
-def limpiar_df(df, cui_a_local, mod_a_local, ubigeo_idx, inst_a_local=None, anio=None):
+def limpiar_df(df, cui_a_local, mod_a_local, ubigeo_idx, inst_a_local=None,
+               dept_idx=None, ugel_idx=None, anio=None):
     """Aplica todas las reglas de limpieza columna por columna."""
     reporte_cols = []
     for col in list(df.columns):
@@ -661,6 +722,10 @@ def limpiar_df(df, cui_a_local, mod_a_local, ubigeo_idx, inst_a_local=None, anio
     for c in df.columns:
         if c not in cols_previas:
             reporte_cols.append((c, "ubigeo (derivado de cod_local)"))
+
+    # para registros sin cod_local: asigna departamento/dre/ugel por nombre
+    if dept_idx or ugel_idx:
+        df, _ = enriquecer_por_nombre(df, dept_idx or {}, ugel_idx or {})
 
     # anio: si la base no tiene fecha, agrega columna anio
     tiene_fecha = any(es_col_fecha(c) for c in df.columns)
@@ -730,9 +795,10 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     c_local = col_local if col_local in df.columns else primera_col(df, es_col_cod_local)
     c_mod   = primera_col(df, es_col_cod_modular)
     c_cui   = primera_col(df, es_col_cui)
-    c_nom   = buscar_col(df, "nombre de la i", "nombre del", "nombre de instituc",
-                         "local escolar", "nombre ie", "locales educativos",
-                         "nombre del servicio")
+    c_nom   = ("nombre_ie" if "nombre_ie" in df.columns else
+               buscar_col(df, "nombre de la i", "nombre del", "nombre de instituc",
+                          "local escolar", "nombre ie", "locales educativos",
+                          "nombre del servicio"))
     # prioriza columnas canonicas derivadas de ubigeo
     c_dep   = "departamento" if "departamento" in df.columns else buscar_col(df, "region", "departamento", "nombre departamento", "dre/gre")
     c_prov  = "provincia"    if "provincia"    in df.columns else buscar_col(df, "provincia", "nombre provincia")
@@ -764,6 +830,7 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     out["ubigeo"]           = col("ubigeo") if "ubigeo" in df.columns else np.nan
     out["dre"]              = col("dre") if "dre" in df.columns else np.nan
     out["ugel"]             = col("ugel") if "ugel" in df.columns else np.nan
+    out["area"]             = col("area") if "area" in df.columns else np.nan
     out["tipo_intervencion"]= col(c_tipo)
     out["estado"]           = col(c_est)
     out["monto"]            = col(c_monto)
@@ -810,13 +877,33 @@ def main():
     ubigeo_idx = construir_indice_ubigeo()
     mod_padron, inst_padron, geo_padron = cargar_padron()
 
-    # fusiona padron como fuente ADICIONAL (sin sobrescribir lo ya conocido)
+    # fusiona padron como fuente ADICIONAL (sin sobrescribir lo ya conocido,
+    # pero completando campos faltantes -p.ej. area, nombre_ie- a nivel de campo)
     for k, v in mod_padron.items():
         mod_a_local.setdefault(k, v)
     for cl, info in geo_padron.items():
-        ubigeo_idx.setdefault(cl, info)
+        if cl not in ubigeo_idx:
+            ubigeo_idx[cl] = info
+        else:
+            actual = ubigeo_idx[cl]
+            for campo, valor in info.items():
+                if pd.isna(actual.get(campo)) and pd.notna(valor):
+                    actual[campo] = valor
+
+    # indices por NOMBRE (para registros sin cod_local): UGEL y departamento
+    dept_idx, ugel_idx = {}, {}
+    for info in ubigeo_idx.values():
+        dep = info.get("departamento")
+        if isinstance(dep, str) and norm_key(dep):
+            dept_idx.setdefault(norm_key(dep),
+                                {"departamento": dep, "dre": info.get("dre")})
+        ug = info.get("ugel")
+        if isinstance(ug, str) and norm_key(ug):
+            ugel_idx.setdefault(norm_key(ug), {"departamento": dep,
+                                "dre": info.get("dre"), "ugel": ug})
     print(f"  · Indices combinados -> cod_mod: {len(mod_a_local):,} | "
-          f"locales con ubicacion: {len(ubigeo_idx):,}")
+          f"locales con ubicacion: {len(ubigeo_idx):,} | "
+          f"UGEL: {len(ugel_idx):,} | departamentos: {len(dept_idx):,}")
 
     filas_dicc       = []   # diccionario de datos
     filas_reporte    = []   # reporte por base
@@ -844,7 +931,8 @@ def main():
             continue
 
         df, rep_cols, n_imp, col_local, n_geo = limpiar_df(
-            df, cui_a_local, mod_a_local, ubigeo_idx, inst_padron, anio)
+            df, cui_a_local, mod_a_local, ubigeo_idx, inst_padron,
+            dept_idx, ugel_idx, anio)
 
         # agrega campo 'fuente' (unidad/remitente que reporta) a cada base
         df["fuente"] = asignar_fuente(df, archivo).values

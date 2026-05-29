@@ -50,10 +50,17 @@ Todas las salidas quedan en la carpeta `output/`.
 | **Texto disperso** | Normalizado: recortado, espacios colapsados, sin saltos de línea; placeholders de vacío (`-`, `·`, `N/A`, `SIN DATO`, …) → nulo. |
 | **Comentarios / Observaciones** | Se **conservan completos** (solo se recortan espacios) porque suelen contener mayor información. |
 
-### Enriquecimiento geográfico (ubigeo + UGEL)
+### Enriquecimiento geográfico (ubigeo + UGEL + padrón)
 A partir del `cod_local` limpio, **todas las bases** reciben las columnas
 canónicas `departamento`, `provincia`, `distrito`, `centro_poblado`, `ubigeo`,
-`dre` y `ugel`, tomadas del insumo `ubigeo_UGEL.xlsx`.
+`dre`, `ugel`, **`nombre_ie`** (nombre de la institución educativa) y
+**`area`** (ámbito **Urbano/Rural**), tomadas de `ubigeo_UGEL.xlsx` y del
+padrón web. Cobertura: nombre_ie 97.6%, área 99.6%, departamento/DRE 99.9%,
+UGEL 99.7%.
+
+Para los registros **sin `cod_local`** (p. ej. asesoramientos por entidad), se
+asigna departamento/DRE/UGEL **cruzando por nombre** de Unidad Zonal o UGEL
+contra el padrón (ej.: *UNIDAD ZONAL AREQUIPA* → AREQUIPA / GRE AREQUIPA).
 
 ---
 
