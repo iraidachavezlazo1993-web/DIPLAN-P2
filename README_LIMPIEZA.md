@@ -18,12 +18,20 @@ que indica la unidad/insumo que reporta principalmente el registro
 (ANIN, UGM, DIGEGED, PI, …). En los **Anexos 1 y 2** la fuente se toma **por
 fila** del campo *Remitente* (p. ej. `Anexo 2 - MP Tambopata`).
 
-### Padrón web (imputación + respaldo geográfico)
-El insumo `Copia de Padron_web.csv` (padrón nacional de locales) se usa como
-fuente **adicional** para imputar `cod_local` (vía `cod_mod` / `codinst`) y como
-**respaldo** de ubicación (departamento/provincia/distrito/ubigeo/DRE/UGEL)
-cuando el local no está en `ubigeo_UGEL`. Cobertura resultante: **99.8% de
-`cod_local`** y **99.6% de geografía/UGEL**.
+### Insumos de cruce (imputación + respaldo geográfico)
+Se combinan **varias fuentes** para maximizar la cobertura, sin sobrescribir lo
+ya conocido (relleno a nivel de campo):
+
+| Insumo | Aporte |
+|---|---|
+| `df_vinculaciones_*.xlsx` | cui / cod_mod → cod_local |
+| `Copia de Padron_web.csv` | cod_mod / codinst → cod_local; geo + nombre_ie + área |
+| `ubigeo_UGEL.xlsx` | cod_local → geo + DRE/UGEL + nombre_ie |
+| `ubigeo_pronied.xlsx` | cod_local → geo + DRE/UGEL + nombre_ie + ruralidad; cod_mod → cod_local |
+| `ubigeo_cui.csv` | **CUI → geo** (rescata registros cuyo cod_local no está en los padrones) |
+
+Cobertura resultante: `cod_local` 99.8%, **departamento 100%**, DRE 99.9%,
+UGEL 99.7%, área 99.6%, nombre_ie 97.6%.
 
 ---
 
