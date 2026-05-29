@@ -63,7 +63,7 @@ for d in (OUT_DIR, LIMPIAS_DIR, FINAL_DIR):
 
 ARCHIVO_VINCULACIONES = "df_vinculaciones_updated_20260527.xlsx"
 ARCHIVO_ORDENAMIENTO  = "Ordenamiento_ultimo.xlsx"
-ARCHIVO_UBIGEO        = "ubigeo.xlsx"
+ARCHIVO_UBIGEO        = "ubigeo_UGEL.xlsx"   # ubigeo enriquecido con DRE/UGEL
 
 # ------------------------------------------------------------------ #
 #  NOMBRES DE LOS 11 GRUPOS (insumo Ordenamiento, hoja "Grupos")
@@ -100,7 +100,7 @@ CONFIG = [
     ("FONCODES.xlsx",            "REPORTE_MANT_ACOND_2025",      "df_foncode_2025",            3,  6,  2025),
     ("FONCODES.xlsx",            "REPORTE_MANT_ACOND_2026",      "df_foncode_2026",            4,  6,  2026),
     ("PEIP.xlsx",                "CONTINGENCIA",                 "df_peip_contingencia",       7,  3,  None),
-    ("PEIP.xlsx",                "MANTENIMIENTO",                "df_peip_mantenimiento",      8,  6,  None),
+    ("PEIP_solomant.xlsx",       "MANTENIMIENTO",                "df_peip_mantenimiento",      8,  6,  None),
     ("UGM.xlsx",                 "ACONDICIONAMIENTO",            "df_ugm_acondicionamiento",   12, 4,  None),
     ("UGM.xlsx",                 "MANTENIMIENTO 2025",           "df_ugm_mantenimiento_2025",  13, 6,  2025),
     ("UGM.xlsx",                 "MANTENIMIENTO 2026",           "df_ugm_mantenimiento_2026",  14, 6,  2026),
@@ -506,6 +506,8 @@ def construir_indice_ubigeo():
     c_dist = buscar_col(u, "distrito")
     c_cp   = buscar_col(u, "centro poblado")
     c_ubi  = buscar_col(u, "ubigeo")
+    c_dre  = buscar_col(u, "dre")
+    c_ugel = buscar_col(u, "ugel")
     for _, r in u.iterrows():
         cl = limpiar_cod_local(r.get(c_local))
         if not isinstance(cl, str):
@@ -517,15 +519,18 @@ def construir_indice_ubigeo():
             "centro_poblado":normalizar_texto(r.get(c_cp))   if c_cp   else np.nan,
             "ubigeo":        (lambda v: re.sub(r"\D", "", str(v)).zfill(6)
                               if pd.notna(v) and re.sub(r"\D", "", str(v)) else np.nan)(r.get(c_ubi)) if c_ubi else np.nan,
+            "dre":           normalizar_texto(r.get(c_dre))  if c_dre  else np.nan,
+            "ugel":          normalizar_texto(r.get(c_ugel)) if c_ugel else np.nan,
         })
-    print(f"    -> {len(idx):,} locales georreferenciados")
+    print(f"    -> {len(idx):,} locales georreferenciados (con DRE/UGEL)")
     return idx
 
 
 def agregar_ubigeo(df, col_local, ubigeo_idx):
     """Agrega columnas canonicas departamento/provincia/distrito/centro_poblado/
     ubigeo a partir del cod_local. Devuelve (df, n_geo)."""
-    campos = ["departamento", "provincia", "distrito", "centro_poblado", "ubigeo"]
+    campos = ["departamento", "provincia", "distrito", "centro_poblado",
+              "ubigeo", "dre", "ugel"]
     vacio = {k: np.nan for k in campos}
     locales = df[col_local] if col_local in df.columns else pd.Series([np.nan] * len(df))
     datos = [ubigeo_idx.get(cl, vacio) if isinstance(cl, str) else vacio
@@ -653,6 +658,8 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     out["distrito"]         = col(c_dist)
     out["centro_poblado"]   = col("centro_poblado") if "centro_poblado" in df.columns else np.nan
     out["ubigeo"]           = col("ubigeo") if "ubigeo" in df.columns else np.nan
+    out["dre"]              = col("dre") if "dre" in df.columns else np.nan
+    out["ugel"]             = col("ugel") if "ugel" in df.columns else np.nan
     out["tipo_intervencion"]= col(c_tipo)
     out["estado"]           = col(c_est)
     out["monto"]            = col(c_monto)

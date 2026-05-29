@@ -34,10 +34,10 @@ Todas las salidas quedan en la carpeta `output/`.
 | **Texto disperso** | Normalizado: recortado, espacios colapsados, sin saltos de línea; placeholders de vacío (`-`, `·`, `N/A`, `SIN DATO`, …) → nulo. |
 | **Comentarios / Observaciones** | Se **conservan completos** (solo se recortan espacios) porque suelen contener mayor información. |
 
-### Enriquecimiento geográfico (ubigeo)
+### Enriquecimiento geográfico (ubigeo + UGEL)
 A partir del `cod_local` limpio, **todas las bases** reciben las columnas
-canónicas `departamento`, `provincia`, `distrito`, `centro_poblado` y `ubigeo`,
-tomadas del insumo `ubigeo.xlsx`.
+canónicas `departamento`, `provincia`, `distrito`, `centro_poblado`, `ubigeo`,
+`dre` y `ugel`, tomadas del insumo `ubigeo_UGEL.xlsx`.
 
 ---
 
@@ -102,6 +102,8 @@ output/
   archivo (p. ej. `MANTENIMIENTO_PRONIED`, `Base de Inversiones 2026`,
   `UGEO_2027-2025`). Pertenecen mayormente al Grupo 2 (omitido) o al Grupo 6.
   Ver `reporte_limpieza.xlsx`.
+- `df_peip_mantenimiento` ahora usa el archivo corregido `PEIP_solomant.xlsx`,
+  que separa `cui` y `cod_local`; con ello cruza al 100% con ubigeo.
 - Hojas como `df_uz_asesoramiento` no tienen código de local (el registro es por
   entidad/UGEL, no por local educativo); en esos casos `cod_local` y el ubigeo
   quedan vacíos por naturaleza del dato.
