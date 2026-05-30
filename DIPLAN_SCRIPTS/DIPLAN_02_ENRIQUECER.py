@@ -19,7 +19,10 @@ INVERS = "Rep_Inversiones_13ABR2026_EDU.xlsb"
 
 
 def cui_key(x):
-    d = re.sub(r"\D", "", str(x)) if x is not None else ""
+    if x is None:
+        return None
+    s = str(x).split(".")[0]          # descarta parte decimal de floats (2585861.0)
+    d = re.sub(r"\D", "", s)
     return (d.lstrip("0") or "0") if d else None
 
 

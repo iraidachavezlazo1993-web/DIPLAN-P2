@@ -54,7 +54,9 @@ def na(t):
 
 
 def _dig(x):
-    return re.sub(r"\D", "", str(x)) if x is not None else ""
+    if x is None:
+        return ""
+    return re.sub(r"\D", "", str(x).split(".")[0])   # ignora decimales de floats
 
 
 # --- 17 subcomponentes: (codigo, grupo_pnie, nombre, claves de ACTIVO) -------
