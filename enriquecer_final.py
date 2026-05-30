@@ -32,6 +32,18 @@ def activos_por_cui():
     return {k: " | ".join(v) for k, v in m.items()}
 
 
+def _serial_a_fecha(v):
+    # convierte serial de Excel (p.ej. 45291.0) a 'DD/MM/YYYY'
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f <= 0:
+        return None
+    base = pd.Timestamp("1899-12-30")
+    return (base + pd.to_timedelta(int(f), unit="D")).strftime("%d/%m/%Y")
+
+
 def fecha_fin_por_cui():
     # prioridad: culminacion fisica > fin de ejecucion > registro de cierre > F9
     cols = ["CODIGO_UNICO", "CULMINACION_EJEC_FISICA", "FEC_FIN_EJUCION",
@@ -44,9 +56,9 @@ def fecha_fin_por_cui():
         if not k or k in m:
             continue
         for c in pri:
-            v = r[c]
-            if pd.notna(v) and str(v).strip():
-                m[k] = str(v).strip()
+            fecha = _serial_a_fecha(r[c])
+            if fecha:
+                m[k] = fecha
                 break
     return m
 
