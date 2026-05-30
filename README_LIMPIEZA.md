@@ -95,13 +95,20 @@ output/
 ```
 
 - **base_final_armonizada**: una sola tabla con columnas estándar
-  (`cod_local`, `cod_modular`, `cui`, `grupo`, `df_name`, `nombre_ie`,
-  `departamento`, `provincia`, `distrito`, `ubigeo`, `tipo_intervencion`,
-  `estado`, `monto`, `devengado`, `avance_fisico`, `fecha`, `anio`,
-  `comentario`). Ideal para análisis transversal.
+  (`cod_local`, `cod_modular`, `cui`, `grupo`, `df_name`, `fuente`, `nombre_ie`,
+  `departamento`, `provincia`, `distrito`, `ubigeo`, `dre`, `ugel`, `area`,
+  `tipo_intervencion`, `tipo_activo`, `estado`, `monto`, `devengado`,
+  `avance_fisico`, `fecha_inicio`, `fecha_fin`, `anio`, `comentario`). Ideal para
+  análisis transversal. `tipo_intervencion` = nombre del grupo (en PI = tipo de
+  inversión); `tipo_activo` = activo intervenido / detalle.
+- **consolidado_por_grupo/**: una base **consolidada por cada uno de los 11
+  grupos**, conservando **todos** los campos de sus bases (unión de columnas).
 - **base_final_union_completa**: apila todas las bases conservando **todas** sus
-  columnas originales + metadatos (`_grupo`, `_df_name`, `_libro`, `_hoja`).
-  Se entrega en Parquet por su gran tamaño (tabla muy ancha).
+  columnas originales + metadatos. Se entrega en Parquet por su tamaño.
+
+Todas las columnas se entregan **canonizadas** (minúscula, snake_case; p. ej.
+*Código Único de Inversiones* → `cui`). El `diccionario_datos.xlsx` lista cada
+`variable` canónica junto a su `nombre_original`.
 - **diccionario_datos.xlsx**: por cada base, lista de columnas, tipo de limpieza
   aplicada, conteo de no nulos y un valor de ejemplo.
 - **reporte_limpieza.xlsx**: resumen por base (filas, columnas, cod_local

@@ -354,6 +354,79 @@ def limpiar_cod_modular(valor):
 
 
 # ================================================================== #
+#  CANONIZACION DE NOMBRES DE VARIABLES (minuscula, snake_case)
+# ================================================================== #
+# Sinonimos -> nombre canonico (clave = norm_key del nombre original)
+SINONIMOS_CANON = {
+    "n°": "n", "nº": "n", "no": "n", "item": "item",
+    "cui": "cui", "cui (iri)": "cui",
+    "codigo unico de inversiones (cui)": "cui",
+    "codigo unico de inversion": "cui", "codigo unico de inversiones": "cui",
+    "codigo de inversion": "cui", "codigo de inversiones": "cui",
+    "codigo local": "cod_local", "codigo del local educativo": "cod_local",
+    "codigo de local educativo": "cod_local", "codigo de local": "cod_local",
+    "cod_local": "cod_local", "code local": "cod_local",
+    "codigo modular": "cod_mod", "codigos modulares": "cod_mod",
+    "codigos modulares intervenidos": "cod_mod", "cod. modular": "cod_mod",
+    "cod modular": "cod_mod", "cod_modular": "cod_mod", "cod_mod": "cod_mod",
+    "codigo institucional": "cod_institucional",
+    "nombre de la i.e.": "nombre_ie", "nombre de la ie": "nombre_ie",
+    "nombre del iri": "nombre_ie", "nombre del peip": "nombre_ie",
+    "nombre de institucion educativa": "nombre_ie",
+    "nombre del servicio educativo": "nombre_ie", "local escolar": "nombre_ie",
+    "region": "departamento", "departamento": "departamento",
+    "nombre departamento": "departamento",
+    "provincia": "provincia", "nombre provincia": "provincia",
+    "distrito": "distrito", "nombre distrito": "distrito",
+    "monto de la inversion (s/)": "monto", "monto de inversion (s/)": "monto",
+    "monto contractual (s/)": "monto_contractual",
+    "monto devengado": "devengado",
+    "avance fisico (%)": "avance_fisico", "avance (%)": "avance",
+    "fecha de inicio (o estimada)": "fecha_inicio",
+    "fecha de culminacion (o estimada)": "fecha_culminacion",
+    "comentarios": "comentario", "comentario": "comentario",
+    "fuentes_concat": "fuentes_concat",
+}
+
+
+def canonizar_nombre(nombre) -> str:
+    """Convierte un nombre de columna a su forma canonica: minuscula,
+    sin acentos, snake_case; mapea sinonimos conocidos (p.ej. 'Codigo Unico
+    de Inversiones' -> 'cui')."""
+    k = norm_key(nombre)
+    if k in SINONIMOS_CANON:
+        return SINONIMOS_CANON[k]
+    if "comentario" in k:
+        return "comentario"
+    if "observ" in k:
+        return "observacion"
+    s = quitar_acentos(str(nombre)).lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    s = re.sub(r"_+", "_", s)
+    if len(s) > 60:                       # recorta nombres descriptivos largos
+        s = s[:60].rstrip("_")
+    return s or "col"
+
+
+def canonizar_columnas(df):
+    """Renombra todas las columnas a su forma canonica (minuscula/snake_case),
+    resolviendo colisiones con sufijos. Devuelve (df, mapping original->canonico)."""
+    nuevos, usados, mapping = [], set(), {}
+    for c in df.columns:
+        base = canonizar_nombre(c)
+        nombre, i = base, 1
+        while nombre in usados:           # garantiza unicidad real
+            i += 1
+            nombre = f"{base}_{i}"
+        usados.add(nombre)
+        nuevos.append(nombre)
+        mapping[c] = nombre
+    df = df.copy()
+    df.columns = nuevos
+    return df, mapping
+
+
+# ================================================================== #
 #  CLASIFICACION DE COLUMNAS POR NOMBRE
 # ================================================================== #
 def es_col_fecha(nombre: str) -> bool:
@@ -467,11 +540,11 @@ def cargar_hoja(archivo: str, hoja: str) -> pd.DataFrame:
 #  CRUCE CON VINCULACIONES (imputacion de cod_local)
 # ================================================================== #
 def construir_indices_vinculaciones():
-    """Devuelve dicts cui->cod_local y cod_mod->cod_local a partir del insumo."""
+    """Devuelve dicts cui->cod_local, cod_mod->cod_local y cod_local->[cod_mod]."""
     print("  · Cargando insumo de vinculaciones (puede tardar)...")
     v = pd.read_excel(ARCHIVO_VINCULACIONES, sheet_name=0, dtype=object)
     v.columns = [limpiar_nombre_columna(c) for c in v.columns]
-    cui_a_local, mod_a_local = {}, {}
+    cui_a_local, mod_a_local, local2mods = {}, {}, {}
     for _, r in v.iterrows():
         cl = limpiar_cod_local(r.get("cod_local"))
         if cl is np.nan or cl is None:
@@ -480,10 +553,11 @@ def construir_indices_vinculaciones():
         mod = _solo_digitos(str(r.get("cod_mod", "")))
         if cui and cui not in cui_a_local:
             cui_a_local[cui.lstrip("0") or "0"] = cl
-        if mod and mod not in mod_a_local:
-            mod_a_local[mod.lstrip("0") or "0"] = cl
+        if mod:
+            mod_a_local.setdefault(mod.lstrip("0") or "0", cl)
+            local2mods.setdefault(cl, set()).add(mod.zfill(7))
     print(f"    -> {len(cui_a_local):,} CUI y {len(mod_a_local):,} cod_mod indexados")
-    return cui_a_local, mod_a_local
+    return cui_a_local, mod_a_local, local2mods
 
 
 def imputar_cod_local(df, cui_a_local, mod_a_local, inst_a_local=None):
@@ -595,7 +669,7 @@ def construir_indice_pronied():
     c_ugel = buscar_col(u, "dre / ugel", "ugel", "dre/ugel")
     c_nom  = buscar_col(u, "numero y nombre", "nombre")
     c_area = buscar_col(u, "gradiente", "ruralidad", "area")
-    geo, mod2local = {}, {}
+    geo, mod2local, local2mods = {}, {}, {}
     for _, r in u.iterrows():
         cl = limpiar_cod_local(r.get(c_local))
         if not isinstance(cl, str):
@@ -615,8 +689,9 @@ def construir_indice_pronied():
         if c_mod and pd.notna(r.get(c_mod)):
             for m in re.findall(r"\d{5,8}", str(r.get(c_mod))):
                 mod2local.setdefault(m.lstrip("0") or "0", cl)
+                local2mods.setdefault(cl, set()).add(m.zfill(7))
     print(f"    -> PRONIED: {len(geo):,} locales, {len(mod2local):,} cod_mod")
-    return geo, mod2local
+    return geo, mod2local, local2mods
 
 
 def cargar_ubigeo_cui():
@@ -875,9 +950,15 @@ def etiqueta_fuente(libro):
 
 
 def asignar_fuente(df, libro):
-    """Devuelve la serie 'fuente' por fila. Para los Anexos toma el campo
-    'Remitente' (quien reporta la informacion); en el resto, la unidad."""
+    """Devuelve la serie 'fuente' por fila.
+      - Grupo 2 (PI): toma el campo 'fuentes_concat' de la propia base.
+      - Anexos 1 y 2: toma el campo 'Remitente' (quien reporta).
+      - Resto: la unidad/insumo que reporta."""
     etiqueta = etiqueta_fuente(libro)
+    if libro == "df_pi_listados_final_v7.xlsx":
+        c_fc = buscar_col(df, "fuentes_concat", "fuentes concat", "fuente")
+        if c_fc is not None:
+            return df[c_fc].astype(object).where(df[c_fc].notna(), etiqueta)
     if etiqueta in ("Anexo 1", "Anexo 2"):
         c_rem = buscar_col(df, "remitente")
         if c_rem is not None:
@@ -885,6 +966,23 @@ def asignar_fuente(df, libro):
                 df[c_rem].notna(), "Sin remitente").astype(str)
             return base
     return pd.Series([etiqueta] * len(df), index=df.index)
+
+
+def _col_fecha_inicio(df):
+    for c in df.columns:
+        if es_col_fecha(c) and any(k in norm_key(c) for k in
+                                   ["inicio", "viabilidad", "aprobacion"]):
+            return c
+    return None
+
+
+def _col_fecha_fin(df):
+    for c in df.columns:
+        if es_col_fecha(c) and any(k in norm_key(c) for k in
+                                   ["culmin", "fin", "entrega", "recepcion",
+                                    "cierre", "estimad", "caducidad", "termino"]):
+            return c
+    return None
 
 
 def armonizar(df, df_name, grupo, libro, hoja, col_local):
@@ -909,21 +1007,40 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     c_dep   = "departamento" if "departamento" in df.columns else buscar_col(df, "region", "departamento", "nombre departamento", "dre/gre")
     c_prov  = "provincia"    if "provincia"    in df.columns else buscar_col(df, "provincia", "nombre provincia")
     c_dist  = "distrito"     if "distrito"     in df.columns else buscar_col(df, "distrito", "nombre distrito")
-    c_tipo  = buscar_col(df, "tipo de intervencion", "tipo de mantenimiento",
-                         "tipo de inversion", "actividad", "componente",
-                         "descripcion del bien", "tipologia")
+    # detalle del activo / intervencion segun la base
+    c_activo = buscar_col(df, "tipo de mantenimiento", "actividad", "componente",
+                          "descripcion del bien", "tipologia",
+                          "tipo de intervencion", "tipo de inversion",
+                          "activo intervenido")
     c_est   = buscar_col(df, "estado", "fase de la obra", "etapa de la intervencion",
                          "fase del proceso", "situacion")
     c_monto = buscar_col(df, "monto de la inversion", "monto de inversion",
                          "monto contractual", "monto total", "monto de la intervencion",
                          "costo actualizado", "monto", "pim")
-    c_dev   = buscar_col(df, "devengado", "dev. acumulado", "dev acumulado")
+    c_dev   = buscar_col(df, "devengado", "dev. acumulado", "dev acumulado", "dev_acum")
     c_av    = buscar_col(df, "avance fisico", "avance físico", "avance")
+    c_fini  = _col_fecha_inicio(df)
+    c_ffin  = _col_fecha_fin(df)
     c_fecha = primera_col(df, es_col_fecha)
     c_com   = primera_col(df, es_col_comentario)
 
     def col(c):
         return df[c].values if c in df.columns else np.nan
+
+    # tipo_intervencion = nombre del grupo (para G2 = tipo de inversion);
+    # tipo_activo = detalle del activo intervenido (para G2 = intervencion detectada)
+    if grupo == 2:
+        c_tinv = buscar_col(df, "tipo_inversion", "tipo de inversion")
+        c_tdet = buscar_col(df, "tipo_intervencion_detectada", "intervencion detectada")
+        if c_tinv:                          # tipo de inversion; si falta -> nombre grupo
+            s = df[c_tinv].astype(object)
+            tipo_intervencion = s.where(s.notna(), GRUPOS[grupo]).values
+        else:
+            tipo_intervencion = GRUPOS[grupo]
+        tipo_activo = (df[c_tdet].values if c_tdet else col(c_activo))
+    else:
+        tipo_intervencion = GRUPOS[grupo]
+        tipo_activo = col(c_activo)
 
     out["cod_local"]        = col(c_local)
     out["cod_modular"]      = col(c_mod)
@@ -937,17 +1054,21 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     out["dre"]              = col("dre") if "dre" in df.columns else np.nan
     out["ugel"]             = col("ugel") if "ugel" in df.columns else np.nan
     out["area"]             = col("area") if "area" in df.columns else np.nan
-    out["tipo_intervencion"]= col(c_tipo)
+    out["tipo_intervencion"]= tipo_intervencion
+    out["tipo_activo"]      = tipo_activo
     out["estado"]           = col(c_est)
     out["monto"]            = col(c_monto)
     out["devengado"]        = col(c_dev)
     out["avance_fisico"]    = col(c_av)
-    out["fecha"]            = col(c_fecha)
+    out["fecha_inicio"]     = col(c_fini)
+    out["fecha_fin"]        = col(c_ffin) if c_ffin else (col(c_fecha) if c_fini is None else np.nan)
     out["anio"]             = col("anio") if "anio" in df.columns else np.nan
     out["comentario"]       = col(c_com)
-    # deriva anio desde fecha cuando falte
-    if out["anio"].isna().all() and out["fecha"].notna().any():
-        out["anio"] = out["fecha"].astype(str).str.extract(r"(\d{4})")[0]
+    # deriva anio desde las fechas cuando falte
+    if out["anio"].isna().all():
+        for fc in ("fecha_fin", "fecha_inicio"):
+            anios = out[fc].astype(str).str.extract(r"(\d{4})")[0]
+            out["anio"] = out["anio"].fillna(anios) if "anio" in out else anios
     return out
 
 
@@ -959,16 +1080,21 @@ def nombre_carpeta_grupo(g):
     return os.path.join(LIMPIAS_DIR, f"Grupo_{g:02d}_{base}")
 
 
+def guardar_parquet(df, ruta):
+    """Guarda en parquet preservando tipos numericos; castea solo las columnas
+    de tipo objeto (texto/codigos/mixtas) a 'string' para evitar errores de
+    tipos mixtos en pyarrow."""
+    out = df.copy()
+    for c in out.columns:
+        if out[c].dtype == object:
+            out[c] = out[c].astype("string")
+    out.to_parquet(ruta, index=False)
+
+
 def guardar_df(df, carpeta, df_name):
     os.makedirs(carpeta, exist_ok=True)
-    xlsx = os.path.join(carpeta, f"{df_name}.xlsx")
-    pq   = os.path.join(carpeta, f"{df_name}.parquet")
-    df.to_excel(xlsx, index=False)
-    # parquet: castea todo a string para evitar tipos mixtos
-    try:
-        df.to_parquet(pq, index=False)
-    except Exception:
-        df.astype(str).to_parquet(pq, index=False)
+    df.to_excel(os.path.join(carpeta, f"{df_name}.xlsx"), index=False)
+    guardar_parquet(df, os.path.join(carpeta, f"{df_name}.parquet"))
 
 
 # ================================================================== #
@@ -979,11 +1105,15 @@ def main():
     print(" DIPLAN-P2 | Pipeline de limpieza y consolidacion")
     print("=" * 70)
 
-    cui_a_local, mod_a_local = construir_indices_vinculaciones()
+    cui_a_local, mod_a_local, local2mods = construir_indices_vinculaciones()
     ubigeo_idx = construir_indice_ubigeo()
     mod_padron, inst_padron, geo_padron = cargar_padron()
-    geo_pronied, mod_pronied = construir_indice_pronied()
+    geo_pronied, mod_pronied, local2mods_p = construir_indice_pronied()
     cui2geo = cargar_ubigeo_cui()
+
+    # combina cod_local -> [cod_mod] (vinculaciones + PRONIED) para el Grupo 2
+    for cl, mods in local2mods_p.items():
+        local2mods.setdefault(cl, set()).update(mods)
 
     def fusionar_geo(destino, origen):
         """Agrega 'origen' a 'destino' sin sobrescribir; completa campos NaN."""
@@ -1019,10 +1149,11 @@ def main():
           f"locales con ubicacion: {len(ubigeo_idx):,} | "
           f"UGEL: {len(ugel_idx):,} | departamentos: {len(dept_idx):,}")
 
-    filas_dicc       = []   # diccionario de datos
-    filas_reporte    = []   # reporte por base
-    armonizadas      = []   # para base final armonizada
-    union_completa   = []   # para base final union completa
+    filas_dicc        = []   # diccionario de datos
+    filas_reporte     = []   # reporte por base
+    armonizadas       = []   # para base final armonizada
+    union_completa    = []   # para base final union completa
+    consolidado_grupo = {}   # para una base consolidada por cada grupo
 
     for archivo, hoja, df_name, nro, grupo, anio in CONFIG:
         if grupo == GRUPO_OMITIR:
@@ -1052,25 +1183,24 @@ def main():
         df["fuente"] = asignar_fuente(df, archivo).values
         rep_cols.append(("fuente", "fuente (origen del reporte)"))
 
-        # guarda base limpia
-        guardar_df(df, nombre_carpeta_grupo(grupo), df_name)
+        # SOLO Grupo 2 (PI): completa cod_mod con los modulos del local (padron)
+        if df_name == "df_pi_listados_final_v7":
+            cmod = next((c for c in df.columns if es_col_cod_modular(c)), None)
+            if cmod is None:
+                cmod = "cod_mod"; df[cmod] = np.nan
+            def _mods(cl):
+                if isinstance(cl, str) and cl in local2mods and local2mods[cl]:
+                    return " | ".join(sorted(local2mods[cl]))
+                return np.nan
+            llenos_prev = df[cmod].notna()
+            nuevos_mod = df[col_local].map(_mods)
+            df[cmod] = df[cmod].where(llenos_prev, nuevos_mod)
+            rep_cols.append((cmod, "cod_modular (completado desde padron)"))
 
-        # diccionario de datos
-        for col, tipo in rep_cols:
-            serie = df[col] if col in df.columns else pd.Series(dtype=object)
-            no_nulos = int(serie.notna().sum())
-            ejemplo = ""
-            ej = serie.dropna()
-            if len(ej):
-                ejemplo = str(ej.iloc[0])[:60]
-            filas_dicc.append({
-                "grupo": grupo, "grupo_nombre": GRUPOS[grupo], "df_name": df_name,
-                "libro": archivo, "hoja": hoja, "columna": col,
-                "tipo_limpieza": tipo, "no_nulos": no_nulos,
-                "total_filas": len(df), "ejemplo": ejemplo,
-            })
+        # armoniza ANTES de canonizar (usa los nombres originales para detectar)
+        armonizadas.append(armonizar(df, df_name, grupo, archivo, hoja, col_local))
 
-        # reporte
+        # reporte (antes de renombrar)
         col_local_lleno = int(df[col_local].notna().sum()) if col_local in df.columns else 0
         filas_reporte.append({"df_name": df_name, "libro": archivo, "hoja": hoja,
                               "grupo": grupo, "estado": "OK",
@@ -1079,38 +1209,47 @@ def main():
                               "cod_local_imputados": n_imp,
                               "filas_con_ubigeo": n_geo})
 
-        # base final armonizada
-        armonizadas.append(armonizar(df, df_name, grupo, archivo, hoja, col_local))
+        # CANONIZA nombres de columnas (minuscula / snake_case)
+        df_canon, mapping = canonizar_columnas(df)
 
-        # base final union completa (conserva columnas originales + metadatos)
-        uc = df.copy()
-        uc.insert(0, "_grupo", grupo)
-        uc.insert(1, "_grupo_nombre", GRUPOS[grupo])
-        uc.insert(2, "_df_name", df_name)
-        uc.insert(3, "_libro", archivo)
-        uc.insert(4, "_hoja", hoja)
+        # guarda base limpia (ya canonizada)
+        guardar_df(df_canon, nombre_carpeta_grupo(grupo), df_name)
+
+        # diccionario de datos (variable canonica + nombre original)
+        tipos = dict(rep_cols)
+        for orig, canon in mapping.items():
+            serie = df[orig]
+            ej = serie.dropna()
+            filas_dicc.append({
+                "grupo": grupo, "grupo_nombre": GRUPOS[grupo], "df_name": df_name,
+                "libro": archivo, "hoja": hoja,
+                "variable": canon, "nombre_original": orig,
+                "tipo_limpieza": tipos.get(orig, "texto normalizado"),
+                "no_nulos": int(serie.notna().sum()), "total_filas": len(df),
+                "ejemplo": str(ej.iloc[0])[:60] if len(ej) else "",
+            })
+
+        # base consolidada por grupo (conserva TODOS los campos) + union total
+        uc = df_canon.copy()
+        uc.insert(0, "grupo", grupo)
+        uc.insert(1, "grupo_nombre", GRUPOS[grupo])
+        uc.insert(2, "df_name", df_name)
+        uc.insert(3, "libro", archivo)
+        uc.insert(4, "hoja", hoja)
+        consolidado_grupo.setdefault(grupo, []).append(uc)
         union_completa.append(uc)
 
     # -------- BASE FINAL ARMONIZADA -------- #
     print("\n  · Generando BASE FINAL ARMONIZADA...")
     base_arm = pd.concat(armonizadas, ignore_index=True)
     base_arm.to_excel(os.path.join(FINAL_DIR, "base_final_armonizada.xlsx"), index=False)
-    try:
-        base_arm.to_parquet(os.path.join(FINAL_DIR, "base_final_armonizada.parquet"), index=False)
-    except Exception:
-        base_arm.astype(str).to_parquet(os.path.join(FINAL_DIR, "base_final_armonizada.parquet"), index=False)
+    guardar_parquet(base_arm, os.path.join(FINAL_DIR, "base_final_armonizada.parquet"))
     print(f"    -> {len(base_arm):,} filas x {base_arm.shape[1]} columnas")
 
     # -------- BASE FINAL UNION COMPLETA -------- #
     print("  · Generando BASE FINAL UNION COMPLETA...")
     base_uni = pd.concat(union_completa, ignore_index=True, sort=False)
-    # Parquet siempre (formato eficiente para tablas anchas)
-    try:
-        base_uni.astype(object).to_parquet(
-            os.path.join(FINAL_DIR, "base_final_union_completa.parquet"), index=False)
-    except Exception:
-        base_uni.astype(str).to_parquet(
-            os.path.join(FINAL_DIR, "base_final_union_completa.parquet"), index=False)
+    guardar_parquet(base_uni, os.path.join(FINAL_DIR, "base_final_union_completa.parquet"))
     # Excel solo si es manejable (openpyxl es lento con tablas muy grandes)
     celdas = len(base_uni) * base_uni.shape[1]
     if len(base_uni) < 1_048_576 and celdas <= 3_000_000:
@@ -1120,6 +1259,25 @@ def main():
         print(f"    (tabla muy grande: {len(base_uni):,}x{base_uni.shape[1]} = "
               f"{celdas:,} celdas; se entrega solo en Parquet)")
     print(f"    -> {len(base_uni):,} filas x {base_uni.shape[1]} columnas")
+
+    # -------- BASES CONSOLIDADAS POR GRUPO (todos los campos) -------- #
+    print("  · Generando BASES CONSOLIDADAS POR GRUPO...")
+    cons_dir = os.path.join(FINAL_DIR, "consolidado_por_grupo")
+    os.makedirs(cons_dir, exist_ok=True)
+    for g in sorted(consolidado_grupo):
+        cg = pd.concat(consolidado_grupo[g], ignore_index=True, sort=False)
+        base = re.sub(r"[^A-Za-z0-9]+", "_", quitar_acentos(GRUPOS[g])).strip("_")
+        nombre = f"Grupo_{g:02d}_{base}_consolidado"
+        ruta = os.path.join(cons_dir, nombre)
+        guardar_parquet(cg, ruta + ".parquet")
+        celdas = len(cg) * cg.shape[1]
+        if len(cg) < 1_048_576 and celdas <= 4_000_000:
+            cg.to_excel(ruta + ".xlsx", index=False)
+            ex = "xlsx+parquet"
+        else:
+            ex = "solo parquet (muy grande)"
+        print(f"    - Grupo {g:02d} {GRUPOS[g]:<24}: {len(cg):>7,} filas x "
+              f"{cg.shape[1]:>3} cols [{ex}]")
 
     # -------- DICCIONARIO DE DATOS -------- #
     print("  · Generando DICCIONARIO DE DATOS...")
