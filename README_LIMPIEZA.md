@@ -1,151 +1,72 @@
-# DIPLAN-P2 — Limpieza, normalización y consolidación de bases
+# DIPLAN-P2 — Limpieza, consolidación y subcomponentes
 
-Este proyecto toma todas las bases (libros de Excel) entregadas por las distintas
-unidades de PRONIED, las **limpia**, **normaliza** y las **organiza en 11 grupos**
-según el insumo `Ordenamiento_ultimo.xlsx`. Adicionalmente genera un
-**diccionario de datos** y dos **bases finales consolidadas**.
+Procesa las bases de las distintas unidades de PRONIED: las limpia, normaliza,
+organiza en 11 grupos, consolida y evalúa los subcomponentes de cierre de brecha.
 
-> El **Grupo 2 (PI)** se incorpora con su base final ya consolidada
-> (`df_pi_listados_final_v7.xlsx`, hoja `con_cod_local`), pasándola por el mismo
-> pipeline para estandarizar códigos, fechas, montos, ubigeo y `fuente`.
-> Los **insumos** (`Ordenamiento_ultimo.xlsx`, `df_vinculaciones_*.xlsx`,
-> `ubigeo_UGEL.xlsx`, `Copia de Padron_web.csv`) **no se limpian**; solo se usan
-> como referencia/cruce.
+## Orden de ejecución
 
-### Campo `fuente`
-Todas las bases (individuales y consolidadas) incluyen una columna **`fuente`**
-que indica la unidad/insumo que reporta principalmente el registro
-(ANIN, UGM, DIGEGED, PI, …). En los **Anexos 1 y 2** la fuente se toma **por
-fila** del campo *Remitente* (p. ej. `Anexo 2 - MP Tambopata`).
-
-### Insumos de cruce (imputación + respaldo geográfico)
-Se combinan **varias fuentes** para maximizar la cobertura, sin sobrescribir lo
-ya conocido (relleno a nivel de campo):
-
-| Insumo | Aporte |
-|---|---|
-| `df_vinculaciones_*.xlsx` | cui / cod_mod → cod_local |
-| `Copia de Padron_web.csv` | cod_mod / codinst → cod_local; geo + nombre_ie + área |
-| `ubigeo_UGEL.xlsx` | cod_local → geo + DRE/UGEL + nombre_ie |
-| `ubigeo_pronied.xlsx` | cod_local → geo + DRE/UGEL + nombre_ie + ruralidad; cod_mod → cod_local |
-| `ubigeo_cui.csv` | **CUI → geo** (rescata registros cuyo cod_local no está en los padrones) |
-
-Cobertura resultante: `cod_local` 99.8%, **departamento 100%**, DRE 99.9%,
-UGEL 99.7%, área 99.6%, nombre_ie 97.6%.
-
----
-
-## 1. Cómo ejecutar
+Los scripts están en `DIPLAN_SCRIPTS/` y se ejecutan en orden (cada uno hace
+`chdir` a la raíz del proyecto, donde están los insumos):
 
 ```bash
-pip install pandas openpyxl pyarrow
-python3 limpieza_diplan_p2.py
+pip install pandas openpyxl pyarrow pyxlsb
+python DIPLAN_SCRIPTS/DIPLAN_01_LIMPIEZA.py        # limpia, consolida y arma bases
+python DIPLAN_SCRIPTS/DIPLAN_02_ENRIQUECER.py      # completa tipo_activo y fecha_fin
+python DIPLAN_SCRIPTS/DIPLAN_03_SUBCOMPONENTES.py  # subcomponentes sobre la consolidada
 ```
 
-Todas las salidas quedan en la carpeta `output/`.
+> Importante: respetar el orden. El paso 02 completa la base armonizada con
+> las fuentes de inversiones; si se vuelve a correr el paso 01 hay que correr
+> nuevamente 02 y 03.
 
----
+## Salidas (`DIPLAN_OUTPUT/`)
 
-## 2. Reglas de limpieza aplicadas
-
-| Tipo de campo | Regla |
-|---|---|
-| **Fechas** | Formato `DD/MM/YYYY` (sin hora). |
-| **Monto / Devengado / Costo / PIM** | Número puro (sin letras ni `S/`, sin separador de miles). |
-| **cod_local** | Un solo código por celda, **6 dígitos** (ceros a la izquierda). Si falta, se imputa cruzando con `vinculaciones` (vía `cui` o `cod_modular`). |
-| **cod_modular** | **7 dígitos**. Se permite **apilado** (varios códigos por celda, separados por ` \| `) porque así corresponde a la realidad modular. |
-| **cui** | 7 dígitos (ceros a la izquierda). |
-| **Texto disperso** | Normalizado: recortado, espacios colapsados, sin saltos de línea; placeholders de vacío (`-`, `·`, `N/A`, `SIN DATO`, …) → nulo. |
-| **Comentarios / Observaciones** | Se **conservan completos** (solo se recortan espacios) porque suelen contener mayor información. |
-
-### Enriquecimiento geográfico (ubigeo + UGEL + padrón)
-A partir del `cod_local` limpio, **todas las bases** reciben las columnas
-canónicas `departamento`, `provincia`, `distrito`, `centro_poblado`, `ubigeo`,
-`dre`, `ugel`, **`nombre_ie`** (nombre de la institución educativa) y
-**`area`** (ámbito **Urbano/Rural**), tomadas de `ubigeo_UGEL.xlsx` y del
-padrón web. Cobertura: nombre_ie 97.6%, área 99.6%, departamento/DRE 99.9%,
-UGEL 99.7%.
-
-Para los registros **sin `cod_local`** (p. ej. asesoramientos por entidad), se
-asigna departamento/DRE/UGEL **cruzando por nombre** de Unidad Zonal o UGEL
-contra el padrón (ej.: *UNIDAD ZONAL AREQUIPA* → AREQUIPA / GRE AREQUIPA).
-
----
-
-## 3. Salidas (`output/`)
+Equivale a la carpeta de resultados del proyecto (local: `…/MINEDU/03_output`).
 
 ```
-output/
-├── bases_limpias/
-│   ├── Grupo_01_MOBILIARIO_Y_EQUIPO/   <df>.xlsx + <df>.parquet
-│   ├── Grupo_03_MODULOS/
-│   ├── Grupo_04_ACONDICIONAMIENTO/
-│   ├── Grupo_05_ASISTENCIAS_SIMILAR/
-│   ├── Grupo_06_MANTENIMIENTO/
-│   ├── Grupo_07_SANEAMIENTO/
-│   ├── Grupo_08_PROGRAMAS_PRESUPUESTALES/
-│   ├── Grupo_09_OTROS/
-│   ├── Grupo_10_INSPECCIONES/
-│   └── Grupo_11_DEMOLICIONES/
+DIPLAN_OUTPUT/
+├── bases_limpias/Grupo_XX/                  data limpia individual (xlsx + parquet)
 ├── base_final/
-│   ├── base_final_armonizada.xlsx / .parquet      (columnas estándar)
-│   └── base_final_union_completa.parquet          (todas las columnas originales)
+│   ├── consolidado_por_grupo/Grupo_XX...    consolidada por grupo (todos los campos)
+│   ├── base_final_armonizada.xlsx/.parquet  consolidada total (columnas estándar)
+│   ├── base_final_union_completa.parquet    unión total (todas las columnas)
+│   ├── subcomponentes_total_matriz...       subcomponentes 1/0 por cod_local
+│   ├── subcomponentes_total_evidencia...    evidencia (activo y estado para cotejo)
+│   └── subcomponentes_total_diccionario.xlsx
 ├── diccionario_datos.xlsx
 └── reporte_limpieza.xlsx
 ```
 
-- **base_final_armonizada**: una sola tabla con columnas estándar
-  (`cod_local`, `cod_modular`, `cui`, `grupo`, `df_name`, `fuente`, `nombre_ie`,
-  `departamento`, `provincia`, `distrito`, `ubigeo`, `dre`, `ugel`, `area`,
-  `tipo_intervencion`, `tipo_activo`, `estado`, `monto`, `devengado`,
-  `avance_fisico`, `fecha_inicio`, `fecha_fin`, `anio`, `comentario`). Ideal para
-  análisis transversal. `tipo_intervencion` = nombre del grupo (en PI = tipo de
-  inversión); `tipo_activo` = activo intervenido / detalle.
-- **consolidado_por_grupo/**: una base **consolidada por cada uno de los 11
-  grupos**, conservando **todos** los campos de sus bases (unión de columnas).
-- **base_final_union_completa**: apila todas las bases conservando **todas** sus
-  columnas originales + metadatos. Se entrega en Parquet por su tamaño.
+## Reglas de limpieza
 
-Todas las columnas se entregan **canonizadas** (minúscula, snake_case; p. ej.
-*Código Único de Inversiones* → `cui`). El `diccionario_datos.xlsx` lista cada
-`variable` canónica junto a su `nombre_original`.
-- **diccionario_datos.xlsx**: por cada base, lista de columnas, tipo de limpieza
-  aplicada, conteo de no nulos y un valor de ejemplo.
-- **reporte_limpieza.xlsx**: resumen por base (filas, columnas, cod_local
-  imputados, filas con ubigeo) y resumen por grupo.
+- Fechas en `DD/MM/YYYY`; montos/devengado numéricos.
+- `cod_local` 6 dígitos (imputado por cui/cod_mod/codinst con vinculaciones y
+  padrón); `cod_mod` 7 dígitos (apilable); `cui` 7 dígitos.
+- Texto normalizado; comentarios conservados.
+- Geografía (departamento/provincia/distrito/ubigeo/DRE/UGEL), `nombre_ie` y
+  `area` (Urbano/Rural) desde los padrones (cod_local y CUI).
+- Variables canonizadas (minúscula/snake_case); columnas con contenido
+  duplicado eliminadas (cada variable una sola vez).
+- Campo `fuente`: unidad que reporta; en Anexos 1/2 el Remitente; en PI el
+  campo `fuentes_concat`.
 
----
+## Base armonizada — campos
 
-## 4. Mapa de los 11 grupos (insumo `Ordenamiento_ultimo.xlsx`)
+`cod_local, cui, cod_modular, grupo, df_name, fuente, nombre_ie, departamento,
+provincia, distrito, ubigeo, dre, ugel, area, tipo_intervencion, tipo_activo,
+estado, monto, devengado, avance_fisico, fecha_inicio, fecha_fin, anio,
+comentario`.
 
-| Grupo | Nombre | Bases incluidas (de los archivos disponibles) |
-|---|---|---|
-| 1 | MOBILIARIO Y EQUIPO | `df_ugme_mobiliario`, `df_drelm_mobiliario`, `df_anexo2_b` |
-| 2 | PI | *(omitido — ya limpio)* |
-| 3 | MODULOS | `df_ugme_modulares`, `df_ugme_conservacion`, `df_ugrd_mbr`, `df_ugrd_me`, `df_ugrd_pircc_pircc`, `df_peip_contingencia`, `df_drelm_modulo`, `df_anexo2_a` |
-| 4 | ACONDICIONAMIENTO | `df_ugm_acondicionamiento`, `df_ugm_accesibilidad_2026`, `df_anexo2_e` |
-| 5 | ASISTENCIAS-SIMILAR | `df_ugsc_asitec`, `df_uz_asesoramiento` |
-| 6 | MANTENIMIENTO | `df_anin_mantenimiento`, `df_foncode_2025`, `df_foncode_2026`, `df_peip_mantenimiento`, `df_ugm_mantenimiento_2025`, `df_ugm_mantenimiento_2026`, `df_digeged_mto`, `df_drelm_mantenimiento`, `df_anexo2_c` |
-| 7 | SANEAMIENTO | `df_digeged_sfl`, `df_drelm_sfl` |
-| 8 | PROGRAMAS PRESUPUESTALES | `df_digeged_programa` |
-| 9 | OTROS | `df_digeged_otros25`, `df_drelm_servicios` |
-| 10 | INSPECCIONES | `df_uz_inspecciones`, `df_ugsc_seguimiento` |
-| 11 | DEMOLICIONES | `df_anexo2_d` |
+`tipo_intervencion` = nombre del grupo (en PI, el tipo de inversión);
+`tipo_activo` = activo intervenido. `tipo_activo` y `fecha_fin` se completan en
+el paso 02 con Rep_Activos_F7 (activo por CUI) y Rep_Inversiones (fecha de
+culminación / fin de ejecución / cierre / F9 por CUI; la fecha de cierre cuenta
+como fin).
 
----
+## Subcomponentes
 
-## 5. Observaciones / pendientes
-
-- Algunas bases referenciadas en el Ordenamiento **no fueron entregadas** como
-  archivo (p. ej. `MANTENIMIENTO_PRONIED`, `Base de Inversiones 2026`,
-  `UGEO_2027-2025`). Pertenecen mayormente al Grupo 2 (omitido) o al Grupo 6.
-  Ver `reporte_limpieza.xlsx`.
-- `df_peip_mantenimiento` ahora usa el archivo corregido `PEIP_solomant.xlsx`,
-  que separa `cui` y `cod_local`; con ello cruza al 100% con ubigeo.
-- Hojas como `df_uz_asesoramiento` no tienen código de local (el registro es por
-  entidad/UGEL, no por local educativo); en esos casos `cod_local` y el ubigeo
-  quedan vacíos por naturaleza del dato.
-- Las hojas de **DRELM** y de **mantenimiento UGM** traen bloques de columnas
-  multinivel; se conservó el encabezado de mayor detalle. Las transformaciones de
-  *pivoteo/transposición* descritas en las observaciones del Ordenamiento se
-  consideran una etapa posterior de modelado, no de limpieza.
+17 subcomponentes de cierre de brecha (Fichas_Indicadores_Cierre_Brecha_PNIE,
+G1–G5/ET) evaluados por cod_local sobre la consolidada total: 1 = cumple,
+0 = no, según el activo presente en las fuentes de inversiones. La base de
+evidencia adjunta el activo que valida y el estado, con las llaves
+(cui, cod_modular), para cotejo.
