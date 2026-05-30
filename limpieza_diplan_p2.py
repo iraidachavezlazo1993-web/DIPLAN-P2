@@ -1287,6 +1287,7 @@ def main():
     # -------- BASE FINAL UNION COMPLETA -------- #
     print("  · Generando BASE FINAL UNION COMPLETA...")
     base_uni = pd.concat(union_completa, ignore_index=True, sort=False)
+    base_uni, _ = quitar_columnas_duplicadas(base_uni)   # sin variables repetidas
     guardar_parquet(base_uni, os.path.join(FINAL_DIR, "base_final_union_completa.parquet"))
     # Excel solo si es manejable (openpyxl es lento con tablas muy grandes)
     celdas = len(base_uni) * base_uni.shape[1]
@@ -1304,6 +1305,7 @@ def main():
     os.makedirs(cons_dir, exist_ok=True)
     for g in sorted(consolidado_grupo):
         cg = pd.concat(consolidado_grupo[g], ignore_index=True, sort=False)
+        cg, _ = quitar_columnas_duplicadas(cg)   # variables repetidas una sola vez
         base = re.sub(r"[^A-Za-z0-9]+", "_", quitar_acentos(GRUPOS[g])).strip("_")
         nombre = f"Grupo_{g:02d}_{base}_consolidado"
         ruta = os.path.join(cons_dir, nombre)
