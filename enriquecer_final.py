@@ -38,7 +38,7 @@ def _serial_a_fecha(v):
         f = float(v)
     except (TypeError, ValueError):
         return None
-    if f <= 0:
+    if not (f > 0):          # descarta NaN, 0 y negativos
         return None
     base = pd.Timestamp("1899-12-30")
     return (base + pd.to_timedelta(int(f), unit="D")).strftime("%d/%m/%Y")
