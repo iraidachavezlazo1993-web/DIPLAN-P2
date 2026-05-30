@@ -426,6 +426,24 @@ def canonizar_columnas(df):
     return df, mapping
 
 
+def quitar_columnas_duplicadas(df):
+    """Elimina columnas cuyo CONTENIDO es identico a otra columna ya presente
+    (p. ej. cod_local repetido, ubigeo duplicado). Conserva la primera
+    aparicion. Devuelve (df, columnas_eliminadas)."""
+    vistas = {}          # firma de contenido -> nombre de columna conservada
+    mantener, eliminadas = [], []
+    for c in df.columns:
+        col = df[c]
+        # firma robusta: valores como texto, nulos normalizados
+        firma = tuple(col.astype("string").fillna("\x00").tolist())
+        if firma in vistas:
+            eliminadas.append((c, vistas[firma]))
+        else:
+            vistas[firma] = c
+            mantener.append(c)
+    return df[mantener], eliminadas
+
+
 # ================================================================== #
 #  CLASIFICACION DE COLUMNAS POR NOMBRE
 # ================================================================== #
@@ -1226,7 +1244,13 @@ def main():
         # CANONIZA nombres de columnas (minuscula / snake_case)
         df_canon, mapping = canonizar_columnas(df)
 
-        # guarda base limpia (ya canonizada)
+        # QUITA columnas con contenido duplicado (variables repetidas)
+        df_canon, dups = quitar_columnas_duplicadas(df_canon)
+        if dups:
+            mapping = {o: c for o, c in mapping.items() if c in df_canon.columns}
+            print(f"      · {len(dups)} columna(s) duplicada(s) eliminada(s)")
+
+        # guarda base limpia (ya canonizada y sin duplicados)
         guardar_df(df_canon, nombre_carpeta_grupo(grupo), df_name)
 
         # diccionario de datos (variable canonica + nombre original)
