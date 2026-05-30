@@ -969,18 +969,26 @@ def asignar_fuente(df, libro):
 
 
 def _col_fecha_inicio(df):
-    for c in df.columns:
-        if es_col_fecha(c) and any(k in norm_key(c) for k in
-                                   ["inicio", "viabilidad", "aprobacion"]):
+    kws = ["inicio", "viabilidad", "aprobacion"]
+    for c in df.columns:                       # preferir columnas tipo fecha
+        if es_col_fecha(c) and any(k in norm_key(c) for k in kws):
+            return c
+    for c in df.columns:                       # si no, por nombre
+        if any(k in norm_key(c) for k in kws):
             return c
     return None
 
 
 def _col_fecha_fin(df):
-    for c in df.columns:
-        if es_col_fecha(c) and any(k in norm_key(c) for k in
-                                   ["culmin", "fin", "entrega", "recepcion",
-                                    "cierre", "estimad", "caducidad", "termino"]):
+    kws = ["culmin", "entrega", "recepcion", "cierre", "termino",
+           "caducidad", "estimad"]
+    def match(n):
+        return any(k in n for k in kws) or bool(re.search(r"\bfin\b", n))
+    for c in df.columns:                       # preferir columnas tipo fecha
+        if es_col_fecha(c) and match(norm_key(c)):
+            return c
+    for c in df.columns:                       # si no, por nombre (cierre/termino)
+        if match(norm_key(c)):
             return c
     return None
 
@@ -1007,11 +1015,13 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     c_dep   = "departamento" if "departamento" in df.columns else buscar_col(df, "region", "departamento", "nombre departamento", "dre/gre")
     c_prov  = "provincia"    if "provincia"    in df.columns else buscar_col(df, "provincia", "nombre provincia")
     c_dist  = "distrito"     if "distrito"     in df.columns else buscar_col(df, "distrito", "nombre distrito")
-    # detalle del activo / intervencion segun la base
-    c_activo = buscar_col(df, "tipo de mantenimiento", "actividad", "componente",
-                          "descripcion del bien", "tipologia",
-                          "tipo de intervencion", "tipo de inversion",
-                          "activo intervenido")
+    # detalle del activo / intervencion: busca por palabras clave en la base
+    c_activo = buscar_col(df, "activo", "bien", "descripcion", "componente",
+                          "tipo de mantenimiento", "tipo de intervencion",
+                          "tipo de inversion", "tipo de sistema", "sistema modular",
+                          "actividad", "tipologia", "producto", "grupo", "tema",
+                          "titulo del asesoramiento", "alcance del plan",
+                          "denominacion")
     c_est   = buscar_col(df, "estado", "fase de la obra", "etapa de la intervencion",
                          "fase del proceso", "situacion")
     c_monto = buscar_col(df, "monto de la inversion", "monto de inversion",
@@ -1026,6 +1036,10 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
 
     def col(c):
         return df[c].values if c in df.columns else np.nan
+
+    def fechacol(c):
+        # formatea a DD/MM/YYYY (idempotente) incluso columnas no marcadas como fecha
+        return df[c].map(limpiar_fecha).values if c and c in df.columns else np.nan
 
     # tipo_intervencion = nombre del grupo (para G2 = tipo de inversion);
     # tipo_activo = detalle del activo intervenido (para G2 = intervencion detectada)
@@ -1060,8 +1074,8 @@ def armonizar(df, df_name, grupo, libro, hoja, col_local):
     out["monto"]            = col(c_monto)
     out["devengado"]        = col(c_dev)
     out["avance_fisico"]    = col(c_av)
-    out["fecha_inicio"]     = col(c_fini)
-    out["fecha_fin"]        = col(c_ffin) if c_ffin else (col(c_fecha) if c_fini is None else np.nan)
+    out["fecha_inicio"]     = fechacol(c_fini)
+    out["fecha_fin"]        = fechacol(c_ffin) if c_ffin else (fechacol(c_fecha) if c_fini is None else np.nan)
     out["anio"]             = col("anio") if "anio" in df.columns else np.nan
     out["comentario"]       = col(c_com)
     # deriva anio desde las fechas cuando falte
