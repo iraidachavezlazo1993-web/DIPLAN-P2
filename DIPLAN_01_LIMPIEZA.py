@@ -55,7 +55,7 @@ warnings.filterwarnings("ignore")
 #  RUTAS
 # ------------------------------------------------------------------ #
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR    = os.path.join(BASE_DIR, "output")
+OUT_DIR    = os.path.join(BASE_DIR, "DIPLAN-OUTPUT")
 LIMPIAS_DIR = os.path.join(OUT_DIR, "bases_limpias")
 FINAL_DIR  = os.path.join(OUT_DIR, "base_final")
 for d in (OUT_DIR, LIMPIAS_DIR, FINAL_DIR):

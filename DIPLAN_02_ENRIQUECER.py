@@ -6,7 +6,7 @@ import re
 import pandas as pd
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-FINAL = os.path.join(BASE, "output", "base_final")
+FINAL = os.path.join(BASE, "DIPLAN-OUTPUT", "base_final")
 ARM = os.path.join(FINAL, "base_final_armonizada")
 ACTIVOS = os.path.join(BASE, "_tmp_zip", "Rep_Activos_F7_02SET2024.csv")
 INVERS = os.path.join(BASE, "Rep_Inversiones_13ABR2026_EDU.xlsb")

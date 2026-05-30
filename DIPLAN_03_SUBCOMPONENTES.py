@@ -38,7 +38,7 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-FINAL_DIR = os.path.join(BASE_DIR, "output", "base_final")
+FINAL_DIR = os.path.join(BASE_DIR, "DIPLAN-OUTPUT", "base_final")
 CONS_PATH = os.path.join(FINAL_DIR, "base_final_armonizada.parquet")
 ACTIVOS   = os.path.join(BASE_DIR, "_tmp_zip", "Rep_Activos_F7_02SET2024.csv")
 INVERS_GZ = os.path.join(BASE_DIR, "HR 079179-2026 - Inversiones.csv.gz")
