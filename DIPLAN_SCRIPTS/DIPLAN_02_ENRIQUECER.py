@@ -7,11 +7,12 @@ import re
 import zipfile
 import pandas as pd
 
-# El proyecto se ejecuta desde la raiz (insumos y carpeta de salida estan ahi).
+# Insumos en DIPLAN_INPUTS; salida en DIPLAN_OUTPUT (ambos en la raiz).
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.chdir(ROOT)
+INPUTS = os.path.join(ROOT, "DIPLAN_INPUTS")
+os.chdir(INPUTS)                                  # los insumos se leen por nombre
 
-FINAL = os.path.join("DIPLAN_OUTPUT", "base_final")
+FINAL = os.path.join(ROOT, "DIPLAN_OUTPUT", "base_final")
 ARM = os.path.join(FINAL, "base_final_armonizada")
 ACTIVOS_ZIP = "Rep_Activos_F7_02SET2024.zip"
 ACTIVOS_CSV = "Rep_Activos_F7_02SET2024.csv"

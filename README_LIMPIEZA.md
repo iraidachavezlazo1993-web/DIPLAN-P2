@@ -1,72 +1,94 @@
 # DIPLAN-P2 — Limpieza, consolidación y subcomponentes
 
-Procesa las bases de las distintas unidades de PRONIED: las limpia, normaliza,
-organiza en 11 grupos, consolida y evalúa los subcomponentes de cierre de brecha.
+Proyecto para limpiar, normalizar y consolidar las bases de intervenciones de
+PRONIED en 11 grupos, y validar los subcomponentes de cierre de brecha.
 
-## Orden de ejecución
-
-Los scripts están en `DIPLAN_SCRIPTS/` y se ejecutan en orden (cada uno hace
-`chdir` a la raíz del proyecto, donde están los insumos):
-
-```bash
-pip install pandas openpyxl pyarrow pyxlsb
-python DIPLAN_SCRIPTS/DIPLAN_01_LIMPIEZA.py        # limpia, consolida y arma bases
-python DIPLAN_SCRIPTS/DIPLAN_02_ENRIQUECER.py      # completa tipo_activo y fecha_fin
-python DIPLAN_SCRIPTS/DIPLAN_03_SUBCOMPONENTES.py  # subcomponentes sobre la consolidada
-```
-
-> Importante: respetar el orden. El paso 02 completa la base armonizada con
-> las fuentes de inversiones; si se vuelve a correr el paso 01 hay que correr
-> nuevamente 02 y 03.
-
-## Salidas (`DIPLAN_OUTPUT/`)
-
-Equivale a la carpeta de resultados del proyecto (local: `…/MINEDU/03_output`).
+## Estructura del proyecto
 
 ```
-DIPLAN_OUTPUT/
-├── bases_limpias/Grupo_XX/                  data limpia individual (xlsx + parquet)
-├── base_final/
-│   ├── consolidado_por_grupo/Grupo_XX...    consolidada por grupo (todos los campos)
-│   ├── base_final_armonizada.xlsx/.parquet  consolidada total (columnas estándar)
-│   ├── base_final_union_completa.parquet    unión total (todas las columnas)
-│   ├── subcomponentes_total_matriz...       subcomponentes 1/0 por cod_local
-│   ├── subcomponentes_total_evidencia...    evidencia (activo y estado para cotejo)
-│   └── subcomponentes_total_diccionario.xlsx
-├── diccionario_datos.xlsx
-└── reporte_limpieza.xlsx
+DIPLAN_INPUTS/     Insumos de entrada (bases fuente y de cruce)
+DIPLAN_SCRIPTS/    Scripts en orden de ejecución
+DIPLAN_OUTPUT/     Resultados generados
 ```
 
-## Reglas de limpieza
+### DIPLAN_SCRIPTS/ (ejecutar en orden)
 
-- Fechas en `DD/MM/YYYY`; montos/devengado numéricos.
-- `cod_local` 6 dígitos (imputado por cui/cod_mod/codinst con vinculaciones y
-  padrón); `cod_mod` 7 dígitos (apilable); `cui` 7 dígitos.
-- Texto normalizado; comentarios conservados.
-- Geografía (departamento/provincia/distrito/ubigeo/DRE/UGEL), `nombre_ie` y
-  `area` (Urbano/Rural) desde los padrones (cod_local y CUI).
-- Variables canonizadas (minúscula/snake_case); columnas con contenido
-  duplicado eliminadas (cada variable una sola vez).
-- Campo `fuente`: unidad que reporta; en Anexos 1/2 el Remitente; en PI el
-  campo `fuentes_concat`.
+1. **DIPLAN_01_LIMPIEZA.py** — Limpia y normaliza cada base, las organiza en los
+   11 grupos, imputa `cod_local`, enriquece geografía (ubigeo/UGEL/padrón),
+   asigna `fuente`, canoniza nombres de variables, elimina columnas duplicadas y
+   genera: bases limpias por grupo, consolidados por grupo, base final
+   armonizada, unión completa, diccionario y reporte.
+2. **DIPLAN_02_ENRIQUECER.py** — Completa `tipo_activo` y `fecha_fin`
+   (culminación / fin de ejecución / cierre / F9) en la base armonizada, cruzando
+   por CUI con `Rep_Activos_F7` y `Rep_Inversiones`.
+3. **DIPLAN_03_SUBCOMPONENTES.py** — Evalúa los 17 subcomponentes de cierre de
+   brecha por `cod_local` sobre la base consolidada, validando con los activos de
+   `Rep_Activos_F7` y los componentes de `HR Inversiones`.
 
-## Base armonizada — campos
+### DIPLAN_INPUTS/ — Insumos
 
-`cod_local, cui, cod_modular, grupo, df_name, fuente, nombre_ie, departamento,
-provincia, distrito, ubigeo, dre, ugel, area, tipo_intervencion, tipo_activo,
-estado, monto, devengado, avance_fisico, fecha_inicio, fecha_fin, anio,
-comentario`.
+**Bases fuente de los grupos**
+| Archivo | Grupos |
+|---|---|
+| ANIN.xlsx | 6 |
+| FONCODES.xlsx | 6 |
+| PEIP.xlsx / PEIP_solomant.xlsx | 3 / 6 |
+| UGM.xlsx | 4, 6 |
+| UGME.xlsx | 1, 3 |
+| UGRD.xlsx | 3 |
+| UGSC.xlsx | 5, 10 |
+| 2026.03.30 Zonales_UZ.xlsx | 5, 10 |
+| DIGEGED.xlsx | 6, 7, 8, 9 |
+| DRELM.xlsx | 1, 3, 6, 7, 9 |
+| Anexo 01 … 300426.xlsx | (referencia) |
+| Anexo 02 … 300426_depurada.xlsx | 1, 3, 4, 6, 11 |
+| df_pi_listados_final_v7.xlsx | 2 (PI, base ya consolidada) |
 
-`tipo_intervencion` = nombre del grupo (en PI, el tipo de inversión);
-`tipo_activo` = activo intervenido. `tipo_activo` y `fecha_fin` se completan en
-el paso 02 con Rep_Activos_F7 (activo por CUI) y Rep_Inversiones (fecha de
-culminación / fin de ejecución / cierre / F9 por CUI; la fecha de cierre cuenta
-como fin).
+**Insumos de cruce / enriquecimiento**
+| Archivo | Para qué |
+|---|---|
+| Ordenamiento_ultimo.xlsx | define los 11 grupos |
+| df_vinculaciones_updated_20260527.xlsx | cui/cod_mod → cod_local |
+| Copia de Padron_web.csv | imputar cod_local + geografía |
+| ubigeo_UGEL.xlsx | departamento/provincia/distrito/DRE/UGEL/nombre IE |
+| ubigeo_pronied.xlsx | geografía + ruralidad + cod_mod |
+| ubigeo_cui.csv | geografía por CUI |
+| Fichas_Indicadores_Cierre_Brecha_PNIE_060526.xlsx | catálogo de subcomponentes |
+| Rep_Activos_F7_02SET2024.zip | activo por CUI (subcomponentes) |
+| Rep_Inversiones_13ABR2026_EDU.xlsb | fecha fin/cierre por CUI |
+| HR 079179-2026 - Inversiones.csv.gz | componentes por CUI |
 
-## Subcomponentes
+### DIPLAN_OUTPUT/ — Resultados
 
-17 subcomponentes de cierre de brecha (Fichas_Indicadores_Cierre_Brecha_PNIE,
-G1–G5/ET) evaluados por cod_local sobre la consolidada total: 1 = cumple,
-0 = no, según el activo presente en las fuentes de inversiones. La base de
-evidencia adjunta el activo que valida y el estado, con las llaves
-(cui, cod_modular), para cotejo.
+```
+bases_limpias/Grupo_XX_.../          base limpia por hoja (xlsx + parquet)
+base_final/
+  base_final_armonizada.(xlsx|parquet)        tabla estándar de todos los grupos
+  base_final_union_completa.parquet           todas las columnas (solo parquet)
+  consolidado_por_grupo/                       1 consolidado por grupo (xlsx+parquet)
+  subcomponentes_total_matriz.(xlsx|parquet)   1/0 por subcomponente por cod_local
+  subcomponentes_total_evidencia.(xlsx|parquet) detalle por cod_local x subcomp
+  subcomponentes_total_diccionario.xlsx        subcomponentes + palabras clave
+diccionario_datos.xlsx
+reporte_limpieza.xlsx
+```
+
+## Subcomponentes — replicabilidad
+
+La matriz y la evidencia incluyen el **texto crudo** del que se extraen las
+palabras clave de identificación, para que el cumplimiento pueda revisarse,
+replicarse y mejorarse:
+
+- `activos_f7` — activos del local según `Rep_Activos_F7` (campo `ACTIVO`).
+- `componentes_inversion` — componentes según `HR Inversiones`
+  (`DES_PRODUCTO`, `DES_ACCION`, `DES_TIPO_COMPONENTE`).
+- `activo_que_valida` (evidencia) — qué activo concreto disparó el `cumple=1`.
+- `estado` — estado de la inversión (de la base), para cotejo.
+
+El diccionario lista, por subcomponente, las `palabras_clave`, su
+`fuente_palabras_clave` y la `regla` aplicada.
+
+> El criterio de cumplimiento es un proxy por palabras clave sobre los nombres de
+> activos/componentes; no aplica las fórmulas formales (áreas, metros lineales)
+> de la ficha PNIE. Las llaves (`cui`, `cod_local`, `cod_modular`) y los textos
+> crudos permiten refinarlo.

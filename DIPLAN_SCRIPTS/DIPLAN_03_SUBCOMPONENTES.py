@@ -37,9 +37,10 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR  = os.path.dirname(BASE_DIR)            # raiz del proyecto (insumos)
-os.chdir(ROOT_DIR)
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR   = os.path.dirname(BASE_DIR)           # raiz del proyecto
+INPUTS_DIR = os.path.join(ROOT_DIR, "DIPLAN_INPUTS")    # carpeta de insumos
+os.chdir(INPUTS_DIR)                             # los insumos se leen por nombre
 FINAL_DIR = os.path.join(ROOT_DIR, "DIPLAN_OUTPUT", "base_final")
 CONS_PATH = os.path.join(FINAL_DIR, "base_final_armonizada.parquet")
 ACTIVOS_ZIP = "Rep_Activos_F7_02SET2024.zip"
@@ -194,11 +195,13 @@ def main():
     for _, r in agg.iterrows():
         cl = r["cod_local"]
         cuis = r["cui_list"]
-        activos = set()
+        act_f7, comp_inv = set(), set()
         for k in cuis:
-            activos |= cui2act.get(k, set())     # activos F7
-            activos |= cui2comp.get(k, set())    # componentes de inversion (gz)
-        texto_act = " | ".join(sorted(activos))
+            act_f7 |= cui2act.get(k, set())      # activos de Rep_Activos_F7
+            comp_inv |= cui2comp.get(k, set())   # componentes de HR Inversiones
+        activos = act_f7 | comp_inv              # universo para la deteccion
+        texto_act = " | ".join(sorted(act_f7))
+        texto_comp = " | ".join(sorted(comp_inv))
         # estado de cierre: viene de la base consolidada (variable ESTADO)
         estado_base = r["estado_base"] if pd.notna(r["estado_base"]) else ""
 
@@ -227,10 +230,14 @@ def main():
                 "subcomponente": nombre,
                 "cumple": cumple,
                 "activo_que_valida": " | ".join(sorted(matched)) if matched else np.nan,
+                # texto crudo del que se extraen las palabras clave (para replicar/mejorar)
+                "activos_f7": texto_act or np.nan,
+                "componentes_inversion": texto_comp or np.nan,
                 "estado": estado_base or np.nan,
             })
         fila["subcomponentes_cumplidos"] = cumplidos
         fila["activos_f7"] = texto_act or np.nan
+        fila["componentes_inversion"] = texto_comp or np.nan
         fila["estado"] = estado_base or np.nan
         matriz_rows.append(fila)
 
@@ -241,7 +248,8 @@ def main():
     sc_cols = [c for c, *_ in SUBCOMPONENTES]
     meta = ["cod_local", "cui", "cod_modular", "grupos", "nombre_ie",
             "departamento", "provincia", "distrito"]
-    cola = ["subcomponentes_cumplidos", "activos_f7", "estado"]
+    cola = ["subcomponentes_cumplidos", "activos_f7",
+            "componentes_inversion", "estado"]
     matriz = matriz[meta + sc_cols + cola]
 
     os.makedirs(FINAL_DIR, exist_ok=True)
@@ -258,9 +266,15 @@ def main():
         evidencia.to_excel(os.path.join(FINAL_DIR, "subcomponentes_total_evidencia.xlsx"), index=False)
     pq(evidencia, os.path.join(FINAL_DIR, "subcomponentes_total_evidencia.parquet"))
 
-    dic = pd.DataFrame([{"subcomponente_codigo": c, "grupo_pnie": g,
-                         "subcomponente": n, "activos_clave": ", ".join(k)}
-                        for c, g, n, k in SUBCOMPONENTES])
+    dic = pd.DataFrame([{
+        "subcomponente_codigo": c, "grupo_pnie": g, "subcomponente": n,
+        "palabras_clave": ", ".join(k),
+        "fuente_palabras_clave": "Rep_Activos_F7 (campo ACTIVO) + "
+                                 "HR Inversiones (DES_PRODUCTO/DES_ACCION/"
+                                 "DES_TIPO_COMPONENTE)",
+        "regla": "cumple=1 si alguna palabra clave aparece en activos_f7 o "
+                 "componentes_inversion del cod_local",
+    } for c, g, n, k in SUBCOMPONENTES])
     dic.to_excel(os.path.join(FINAL_DIR, "subcomponentes_total_diccionario.xlsx"), index=False)
 
     print(f"\n  · Matriz   : {len(matriz):,} cod_local x {len(sc_cols)} subcomponentes")

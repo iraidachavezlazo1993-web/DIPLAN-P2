@@ -1,2 +1,2 @@
 _tmp_zip/
-*.xlsb
+__pycache__/

@@ -55,8 +55,9 @@ warnings.filterwarnings("ignore")
 #  RUTAS
 # ------------------------------------------------------------------ #
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR    = os.path.dirname(BASE_DIR)          # raiz del proyecto (insumos)
-os.chdir(ROOT_DIR)                               # resuelve insumos desde la raiz
+ROOT_DIR    = os.path.dirname(BASE_DIR)          # raiz del proyecto
+INPUTS_DIR  = os.path.join(ROOT_DIR, "DIPLAN_INPUTS")   # carpeta de insumos
+os.chdir(INPUTS_DIR)                             # los insumos se leen por nombre
 OUT_DIR     = os.path.join(ROOT_DIR, "DIPLAN_OUTPUT")
 LIMPIAS_DIR = os.path.join(OUT_DIR, "bases_limpias")
 FINAL_DIR   = os.path.join(OUT_DIR, "base_final")
