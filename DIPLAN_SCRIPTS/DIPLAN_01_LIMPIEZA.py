@@ -1312,8 +1312,9 @@ def main():
         nombre = f"Grupo_{g:02d}_{base}_consolidado"
         ruta = os.path.join(cons_dir, nombre)
         guardar_parquet(cg, ruta + ".parquet")
-        celdas = len(cg) * cg.shape[1]
-        if len(cg) < 1_048_576 and celdas <= 4_000_000:
+        # Excel admite hasta 1,048,576 filas x 16,384 columnas: generamos xlsx
+        # siempre que quepa fisicamente (puede tardar en bases grandes).
+        if len(cg) < 1_048_576 and cg.shape[1] <= 16_384:
             cg.to_excel(ruta + ".xlsx", index=False)
             ex = "xlsx+parquet"
         else:
